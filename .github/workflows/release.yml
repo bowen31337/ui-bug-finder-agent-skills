@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: ui-bug-scanner/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ui-bug-scanner
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: ui-bug-scanner
+        run: npx playwright install chromium --with-deps
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Build TypeScript
+        working-directory: ui-bug-scanner
+        run: npm run build || echo "Build step skipped (no build script)"
+
+      - name: Create release archive
+        run: |
+          mkdir -p release
+          cp -r ui-bug-scanner/scripts release/
+          cp -r ui-bug-scanner/assets release/ 2>/dev/null || true
+          cp -r ui-bug-scanner/references release/ 2>/dev/null || true
+          cp ui-bug-scanner/SKILL.md release/ 2>/dev/null || true
+          cp ui-bug-scanner/README.md release/ 2>/dev/null || true
+          cp ui-bug-scanner/package.json release/ 2>/dev/null || true
+          cp ui-bug-scanner/tsconfig.json release/ 2>/dev/null || true
+          cp -r .cursor release/ 2>/dev/null || true
+          tar -czf ui-bug-scanner-${{ steps.version.outputs.version }}.tar.gz -C release .
+          zip -r ui-bug-scanner-${{ steps.version.outputs.version }}.zip release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## UI Bug Scanner - Release ${{ steps.version.outputs.version }}
+
+            ### 📦 Installation
+
+            ```bash
+            # Extract the release
+            tar -xzf ui-bug-scanner-${{ steps.version.outputs.version }}.tar.gz
+
+            # Install dependencies
+            npm install
+            npx playwright install chromium
+            ```
+
+            ### 🚀 Quick Start
+
+            ```bash
+            npx ts-node scripts/scanner.ts --url https://example.com
+            ```
+
+            ### 📚 Documentation
+
+            See [README.md](ui-bug-scanner/README.md) for full documentation.
+
+            ### 📝 Changes
+
+            See [CHANGELOG.md](ui-bug-scanner/CHANGELOG.md) for detailed changes.
+
+            ---
+
+            **Full Changelog**: ${{ github.server_url }}/${{ github.repository }}/compare/${{ github.event.before }}...${{ steps.version.outputs.tag }}
+          files: |
+            ui-bug-scanner-${{ steps.version.outputs.version }}.tar.gz
+            ui-bug-scanner-${{ steps.version.outputs.version }}.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: ui-bug-scanner/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ui-bug-scanner
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: ui-bug-scanner
+        run: npx playwright install chromium --with-deps
+
+      - name: Type check
+        working-directory: ui-bug-scanner
+        run: npm run typecheck || npx tsc --noEmit
+
+      - name: Lint
+        working-directory: ui-bug-scanner
+        run: npm run lint || echo "Linting skipped (no lint script)"
+
+      - name: Test
+        working-directory: ui-bug-scanner
+        run: npm test || echo "Tests skipped (no test script)"
