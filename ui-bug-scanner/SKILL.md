@@ -1,8 +1,8 @@
 ---
 name: ui-bug-scanner
-description: Scans websites for UI bugs including accessibility issues (WCAG 2.x AA), usability problems, and custom UI spec violations. Use when you need to audit a website for accessibility compliance, find usability issues, validate against design system rules, or generate developer-ready bug reports. Supports crawling, authenticated apps, and CI integration.
+description: Scans websites for UI bugs including accessibility issues (WCAG 2.x AA), usability problems, and custom UI spec violations. Use when you need to audit a website for a11y compliance, find usability issues, validate against design system rules, or generate developer-ready bug reports. Covers screen reader compatibility, color contrast, keyboard navigation, focus indicators, and WCAG audit. Supports crawling, authenticated apps, stealth mode for bot-protected sites, and CI integration.
 compatibility: Requires Node.js 18+, Playwright, and network access. Works with Chromium-based headless browser.
-allowed-tools: run_terminal_cmd read_file write list_dir
+allowed-tools: Shell Read Write LS Glob
 ---
 
 # UI Bug Scanner
@@ -18,6 +18,14 @@ A comprehensive website UI bug scanning skill that detects accessibility issues,
 - Run **CI/CD accessibility gates** that fail builds on critical issues
 
 ## Quick Start
+
+### Prerequisites (First-Time Setup)
+
+```bash
+cd ui-bug-scanner
+npm install
+npx playwright install chromium
+```
 
 ### 1. Single URL Scan
 
@@ -61,6 +69,25 @@ npx ts-node scanner.ts \
 | `denyPatterns` | string[] | No | URL patterns to skip (e.g., `/logout`, `/delete`) |
 | `outputFormats` | string[] | No | Output formats: `json`, `markdown`, `sarif` |
 | `interactionPlan` | object[] | No | Scripted interactions (click menus, open modals) |
+| `stealth` | boolean | No | Enable stealth mode for bot-protected sites (Cloudflare, etc.) |
+
+### Parameter Reference (Alternative Format)
+
+For agents that may not render tables:
+
+- **startUrls** (required): Array of URLs to scan
+- **crawlMode**: How to discover pages - `single` (default), `sitemap`, `bfs`, or `journey`
+- **maxPages**: Maximum number of pages to scan (default: 10)
+- **maxDepth**: Maximum depth for BFS crawling (default: 3)
+- **viewports**: Screen sizes to test - `desktop`, `tablet`, `mobile`
+- **standards**: WCAG version target, e.g., `{"wcag": "2.1-AA"}`
+- **auth**: Authentication config with cookies or login steps
+- **customSpecs**: Path to custom spec rules JSON file
+- **allowDomains**: Domains allowed for crawling
+- **denyPatterns**: URL patterns to skip (e.g., `/logout`)
+- **outputFormats**: Report formats - `json`, `markdown`, `sarif`
+- **interactionPlan**: Scripted interactions for dynamic content
+- **stealth**: Enable anti-detection for bot-protected sites
 
 ## Output
 
@@ -247,6 +274,25 @@ const results = await scanWebsite({
     { action: 'click', selector: '.cart-icon' },
     { action: 'click', selector: '#checkout-btn' }
   ]
+});
+```
+
+### Example 5: Stealth Mode (Bot-Protected Sites)
+
+For sites with Cloudflare, Imperva, or other bot protection:
+
+```bash
+npx ts-node scanner.ts \
+  --url "https://protected-site.com" \
+  --stealth \
+  --viewport desktop,mobile
+```
+
+```typescript
+const results = await scanWebsite({
+  startUrls: ['https://protected-site.com'],
+  stealth: true,  // Enables anti-detection measures
+  viewports: ['desktop', 'mobile']
 });
 ```
 

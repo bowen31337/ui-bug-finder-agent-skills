@@ -7,7 +7,9 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { chromium, Browser, Page } from 'playwright';
+import { chromium as playwrightChromium, Browser, Page } from 'playwright';
+import { chromium as stealthChromium } from 'playwright-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import {
   ScanInput,
   ScanOutput,
@@ -22,6 +24,7 @@ import {
   Severity,
   FindingCategory,
   SpecRuleset,
+  AnalyzerError,
 } from './types';
 import { BrowserRunner } from './utils/browser';
 import { EvidenceCollector } from './utils/evidence';
@@ -35,11 +38,15 @@ import { generateMarkdownReport } from './reporters/markdown';
 import { generateJsonReport } from './reporters/json';
 import { generateSarifReport } from './reporters/sarif';
 
+// Initialize stealth plugin
+stealthChromium.use(StealthPlugin());
+
 export interface ScannerOptions {
   headless?: boolean;
   timeout?: number;
   concurrency?: number;
   verbose?: boolean;
+  stealth?: boolean; // Enable anti-detection measures for bot-protected sites
 }
 
 export class Scanner {
@@ -52,8 +59,23 @@ export class Scanner {
       timeout: 30000,
       concurrency: 3,
       verbose: false,
+      stealth: false,
       ...options,
     };
+  }
+
+  /**
+   * Get the appropriate chromium launcher based on stealth mode setting
+   */
+  private getChromium() {
+    return this.options.stealth ? stealthChromium : playwrightChromium;
+  }
+
+  /**
+   * Get browser launch arguments
+   */
+  private getLaunchArgs(): string[] {
+    return this.options.stealth ? ['--disable-blink-features=AutomationControlled'] : [];
   }
 
   async scan(input: ScanInput): Promise<ScanOutput> {
@@ -83,10 +105,16 @@ export class Scanner {
       await specAnalyzer.loadRules(createDefaultRuleset());
     }
 
-    // Launch browser
+    // Launch browser (with optional stealth mode for bot-protected sites)
+    const chromium = this.getChromium();
     this.browser = await chromium.launch({
       headless: this.options.headless,
+      args: this.getLaunchArgs(),
     });
+
+    if (this.options.stealth) {
+      this.log('Stealth mode enabled - anti-detection measures active');
+    }
 
     try {
       // Discover URLs to scan
@@ -110,6 +138,7 @@ export class Scanner {
 
       // Execute scan jobs
       const allFindings: Finding[] = [];
+      const allAnalyzerErrors: AnalyzerError[] = [];
       const errors: Array<{ pageUrl: string; viewport: string; error: string; timestamp: string }> = [];
       let completedJobs = 0;
 
@@ -145,6 +174,11 @@ export class Scanner {
           } else {
             allFindings.push(...result.findings);
           }
+          
+          // Collect analyzer errors
+          if (result.analyzerErrors) {
+            allAnalyzerErrors.push(...result.analyzerErrors);
+          }
         }
       }
 
@@ -177,11 +211,17 @@ export class Scanner {
       // Get top findings for summary
       const topFindings = getTopFindings(dedupedFindings, 10);
 
+      // Log analyzer errors if any
+      if (allAnalyzerErrors.length > 0) {
+        this.log(`${allAnalyzerErrors.length} analyzer errors occurred during scan`);
+      }
+
       return {
         summary,
         artifacts,
         topFindings,
         allFindings: dedupedFindings,
+        analyzerErrors: allAnalyzerErrors.length > 0 ? allAnalyzerErrors : undefined,
       };
     } finally {
       await this.browser?.close();
@@ -211,7 +251,11 @@ export class Scanner {
 
       case 'bfs':
         if (!this.browser) {
-          this.browser = await chromium.launch({ headless: true });
+          const chromium = this.getChromium();
+          this.browser = await chromium.launch({ 
+            headless: true,
+            args: this.getLaunchArgs(),
+          });
         }
         const context = await this.browser.newContext();
         const page = await context.newPage();
@@ -261,6 +305,7 @@ export class Scanner {
   ): Promise<PageScanResult> {
     const startTime = Date.now();
     const findings: Finding[] = [];
+    const analyzerErrors: AnalyzerError[] = [];
     let error: string | undefined;
     let screenshotPath: string | undefined;
 
@@ -326,6 +371,13 @@ export class Scanner {
       findings.push(...a11yResult.findings);
       findings.push(...usabilityResult.findings);
       findings.push(...specResult.findings);
+      
+      // Collect analyzer errors
+      analyzerErrors.push(
+        ...(a11yResult.errors || []),
+        ...(usabilityResult.errors || []),
+        ...(specResult.errors || []),
+      );
 
       // Capture element screenshots for findings (limit to avoid overwhelming)
       const criticalFindings = findings.filter(
@@ -355,6 +407,7 @@ export class Scanner {
       job: { url, viewport },
       findings,
       error,
+      analyzerErrors: analyzerErrors.length > 0 ? analyzerErrors : undefined,
       screenshotPath,
       duration: Date.now() - startTime,
     };
@@ -546,8 +599,11 @@ export class Scanner {
 /**
  * Main function for CLI usage
  */
-export async function scanWebsite(input: ScanInput): Promise<ScanOutput> {
-  const scanner = new Scanner({ verbose: true });
+export async function scanWebsite(input: ScanInput, options?: { stealth?: boolean }): Promise<ScanOutput> {
+  const scanner = new Scanner({ 
+    verbose: true,
+    stealth: options?.stealth || input.stealth,
+  });
   return await scanner.scan(input);
 }
 
@@ -560,6 +616,8 @@ if (require.main === module) {
     startUrls: [],
     outputDir: './reports',
   };
+  
+  let stealthMode = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -615,6 +673,9 @@ if (require.main === module) {
           i++;
         }
         break;
+      case '--stealth':
+        stealthMode = true;
+        break;
       case '--help':
       case '-h':
         console.log(`
@@ -630,6 +691,7 @@ Options:
   --output, -o <dir>        Output directory (default: ./reports)
   --specs, -s <path>        Path to custom spec rules JSON
   --format, -f <list>       Output formats: json,markdown,sarif (default: json,markdown)
+  --stealth                 Enable stealth mode for bot-protected sites
   --help, -h                Show this help message
 
 Examples:
@@ -650,9 +712,10 @@ Examples:
   console.log(`URLs: ${input.startUrls.join(', ')}`);
   console.log(`Crawl Mode: ${input.crawlMode || 'single'}`);
   console.log(`Viewports: ${(input.viewports || ['desktop']).join(', ')}`);
+  console.log(`Stealth Mode: ${stealthMode ? 'enabled' : 'disabled'}`);
   console.log('');
 
-  scanWebsite(input)
+  scanWebsite(input, { stealth: stealthMode })
     .then((result) => {
       console.log('\n=== Scan Complete ===\n');
       console.log(`Pages Scanned: ${result.summary.pagesScanned}`);

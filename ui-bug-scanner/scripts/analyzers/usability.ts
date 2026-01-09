@@ -8,6 +8,7 @@ import {
   Finding,
   ViewportConfig,
   AnalyzerResult,
+  AnalyzerError,
   Severity,
 } from '../types';
 import { EvidenceCollector } from '../utils/evidence';
@@ -47,6 +48,7 @@ export class UsabilityAnalyzer {
     viewport: ViewportConfig
   ): Promise<AnalyzerResult> {
     const findings: Finding[] = [];
+    const errors: AnalyzerError[] = [];
 
     try {
       // Check tap target sizes (especially important for mobile)
@@ -86,10 +88,17 @@ export class UsabilityAnalyzer {
       }
 
     } catch (error) {
-      console.error('Usability analysis error:', error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error('Usability analysis error:', err.message);
+      errors.push({
+        analyzer: 'usability',
+        message: err.message,
+        stack: err.stack,
+        timestamp: new Date().toISOString(),
+      });
     }
 
-    return { findings };
+    return { findings, errors: errors.length > 0 ? errors : undefined };
   }
 
   private async checkTapTargetSizes(

@@ -2,7 +2,9 @@
  * Browser Runner - Playwright wrapper for deterministic navigation and evidence capture
  */
 
-import { chromium, Browser, Page, BrowserContext as PlaywrightContext } from 'playwright';
+import { chromium as playwrightChromium, Browser, Page, BrowserContext as PlaywrightContext } from 'playwright';
+import { chromium as stealthChromium } from 'playwright-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import {
   ViewportConfig,
   AuthConfig,
@@ -11,10 +13,14 @@ import {
   BrowserContext,
 } from '../types';
 
+// Initialize stealth plugin
+stealthChromium.use(StealthPlugin());
+
 export interface BrowserRunnerOptions {
   headless?: boolean;
   timeout?: number;
   slowMo?: number;
+  stealth?: boolean; // Enable anti-detection measures
 }
 
 export class BrowserRunner {
@@ -26,6 +32,7 @@ export class BrowserRunner {
       headless: true,
       timeout: 30000,
       slowMo: 0,
+      stealth: false,
       ...options,
     };
   }
@@ -33,9 +40,12 @@ export class BrowserRunner {
   async launch(): Promise<void> {
     if (this.browser) return;
     
+    const chromium = this.options.stealth ? stealthChromium : playwrightChromium;
+    
     this.browser = await chromium.launch({
       headless: this.options.headless,
       slowMo: this.options.slowMo,
+      args: this.options.stealth ? ['--disable-blink-features=AutomationControlled'] : [],
     });
   }
 

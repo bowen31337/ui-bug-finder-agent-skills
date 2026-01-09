@@ -74,6 +74,8 @@ export interface ScanInput {
   outputDir?: string;
   concurrency?: number;
   timeout?: number;
+  /** Enable stealth mode for bot-protected sites (Cloudflare, Imperva, etc.) */
+  stealth?: boolean;
 }
 
 // ============================================================================
@@ -229,6 +231,7 @@ export interface ScanOutput {
   artifacts: ScanArtifacts;
   topFindings: Finding[];
   allFindings: Finding[];
+  analyzerErrors?: AnalyzerError[];
 }
 
 // ============================================================================
@@ -245,14 +248,23 @@ export interface PageScanResult {
   job: PageScanJob;
   findings: Finding[];
   error?: string;
+  analyzerErrors?: AnalyzerError[];
   screenshotPath?: string;
   domSnapshot?: string;
   accessibilityTree?: string;
   duration: number;
 }
 
+export interface AnalyzerError {
+  analyzer: string;
+  message: string;
+  stack?: string;
+  timestamp: string;
+}
+
 export interface AnalyzerResult {
   findings: Finding[];
+  errors?: AnalyzerError[];
   rawData?: unknown;
 }
 

@@ -9,6 +9,7 @@ import {
   Finding,
   ViewportConfig,
   AnalyzerResult,
+  AnalyzerError,
   SpecRuleset,
   SpecRule,
   SpecRuleAssertion,
@@ -43,6 +44,7 @@ export class SpecAnalyzer {
     viewport: ViewportConfig
   ): Promise<AnalyzerResult> {
     const findings: Finding[] = [];
+    const errors: AnalyzerError[] = [];
 
     if (!this.ruleset) {
       return { findings };
@@ -58,11 +60,18 @@ export class SpecAnalyzer {
         const ruleFindings = await this.evaluateRule(page, rule, pageUrl, viewport);
         findings.push(...ruleFindings);
       } catch (error) {
-        console.error(`Error evaluating rule ${rule.id}:`, error);
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error(`Error evaluating rule ${rule.id}:`, err.message);
+        errors.push({
+          analyzer: 'spec',
+          message: `Rule ${rule.id}: ${err.message}`,
+          stack: err.stack,
+          timestamp: new Date().toISOString(),
+        });
       }
     }
 
-    return { findings };
+    return { findings, errors: errors.length > 0 ? errors : undefined };
   }
 
   private async evaluateRule(

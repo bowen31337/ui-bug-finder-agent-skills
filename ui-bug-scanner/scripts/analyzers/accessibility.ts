@@ -13,6 +13,7 @@ import {
   WCAGReference,
   ViewportConfig,
   AnalyzerResult,
+  AnalyzerError,
 } from '../types';
 import { EvidenceCollector } from '../utils/evidence';
 
@@ -87,6 +88,7 @@ export class AccessibilityAnalyzer {
     viewport: ViewportConfig
   ): Promise<AnalyzerResult> {
     const findings: Finding[] = [];
+    const errors: AnalyzerError[] = [];
 
     try {
       // Run axe-core analysis
@@ -155,10 +157,17 @@ export class AccessibilityAnalyzer {
       findings.push(...customFindings);
 
     } catch (error) {
-      console.error('Accessibility analysis error:', error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error('Accessibility analysis error:', err.message);
+      errors.push({
+        analyzer: 'accessibility',
+        message: err.message,
+        stack: err.stack,
+        timestamp: new Date().toISOString(),
+      });
     }
 
-    return { findings };
+    return { findings, errors: errors.length > 0 ? errors : undefined };
   }
 
   private async createFinding(
